@@ -1,37 +1,43 @@
 #-*- coding: utf-8 -*-
 #!/usr/bin/env python
 import sys
-reload(sys)
-sys.setdefaultencoding('utf-8')
 import logging
-
 import random
 import json
 from game import Game
 
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
 class Baseball(Game):
-    GAME_NAME = 'Baseball'
+    ID = '/baseball'
+    NAME = 'Baseball'
+    CLASS_NAME = 'baseball.Baseball'
+    INFO = (ID, CLASS_NAME)
     MAX_NUMBER_LENGTH = 32
     DEFAULT_NUMBER_LENGTH = 3
     DEFAULT_GAME_COUNT = 10
 
-    def __init__(self, number, length=DEFAULT_NUMBER_LENGTH, count=DEFAULT_GAME_COUNT,
-                 name=GAME_NAME, running=True, exclude=[]):
+    def __init__(self, number="", length=DEFAULT_NUMBER_LENGTH, count=DEFAULT_GAME_COUNT,
+                 name=NAME, running=True, exclude=[]):
         super(self.__class__, self).__init__(name, running)
         self.length = length
         self.count = count
-        self.number = number
         self.exclude = exclude
+        self.number = number
+        if self.number == "":
+            self.number = self.make_game(length)
 
-    @staticmethod
-    def load_from_json(json_data):
+    def load(self, json_data):
         try:
             j = json.loads(json_data)
             return Baseball(**j)
-        except:
+        except Exception as e:
+            logging.info(e)
             return None
 
-    def info(self):
+    def start_game(self):
+        super(self.__class__, self).start_game()
         info = """%d 자리 숫자 야구 게임을 시작합니다.
 수의 범위는 1부터 9입니다. %d번 도전 할 수 있습니다.""" % (self.length, self.count)
         return info
@@ -60,21 +66,32 @@ class Baseball(Game):
 
         if s == self.length:
             self.end_game()
-            return "당신이 이겼습니다!"
+            return "당신이 이겼습니다! %s 을 클릭하여 재시작 해 주세요." % self.ID
 
         self._decrease()
 
+        logging.info(self.number)
+
         if self.count <= 0:
             self.end_game()
-            return "%dStrike(s) and %dBall(s). /baseball 로 재시작해주세요." % (s, b)
+            return "숫자는 %s입니다. %s 을 클릭하여 재시작 해 주세요." % (self.number, self.ID)
 
-        return "%dStrike(s) and %dBall(s). %d회 남았습니다." % (s, b, self.count)
+        message = "%dStrike(s) and %dBall(s). %d회 남았습니다." % (s, b, self.count)
+        if s == 0 and b == 0:
+            message += "\n 가능한 숫자는 %s 입니다." % self._get_available()
+
+        return message
 
     def _add_exclude(self, value):
         exclude_value = str(self.exclude)
         for char in value:
             if char not in exclude_value:
                 self.exclude += char
+
+    def _get_available(self):
+        available_list = list(set(list('123456789')) ^ set(self.exclude))
+        available_list.sort()
+        return available_list
 
     @staticmethod
     def make_game(num_length=DEFAULT_NUMBER_LENGTH):
@@ -93,13 +110,13 @@ class Baseball(Game):
 
     def _validate(self, user):
         if not self.running:
-            return "Game has already stopped."
+            return "게임이 이미 종료되었습니다."
 
         if self.count <= 0:
-            return "Sorry. Please restart again."
+            return "%s로 게임을 재시작해주세요." % self.ID
 
         if (not user.isdigit()) | (not len(user) == self.length):
-            return "Please input %d length digit number." % self.length 
+            return "%d 자리 숫자로 입력해 주세요." % self.length
 
         has_zero = False
         char_value = {}
@@ -110,10 +127,10 @@ class Baseball(Game):
             char_value[key] = key
 
         if has_zero:
-            return "Please input 1 ~ 9 number."
+            return "1부터 9사이의 숫자로 입력해 주세요."
 
         if not len(char_value) == self.length:
-            return "Please input different number."
+            return "동일한 숫자는 입력할 수 없습니다."
         return None
 
     def _decrease(self):
@@ -158,9 +175,7 @@ class Baseball(Game):
 def Main():
     print "Baseball Game!"
 
-    value = Baseball.make_game()
-
-    bb = Baseball(value)
+    bb = Baseball()
 
     while True:
         left = bb.count

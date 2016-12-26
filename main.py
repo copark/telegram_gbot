@@ -2,10 +2,6 @@
 #!/usr/bin/env python
 
 import sys
-reload(sys)
-sys.setdefaultencoding('utf-8')
-
-from google.appengine.api import urlfetch
 
 import webapp2
 import requests
@@ -15,15 +11,24 @@ import urllib
 import urllib2
 import json
 
+from google.appengine.api import urlfetch
 from model import GameRecord
-from game import Game
-from baseball import Baseball
 
-DEBUG = True
+from baseball import Baseball
+from arithmetic import Arithmetic
+from g2048 import Game2048
+
+reload(sys)
+sys.setdefaultencoding('utf-8')
+
+DEBUG = False
 DEBUG_URL = 'http://localhost/'
 
 TOKEN = 'TOKEN'
 BASE_URL = 'https://api.telegram.org/bot' + TOKEN + '/'
+
+KEY = 0
+VALUE = 1
 
 CMD_START   = '/start'
 CMD_STOP    = '/stop'
@@ -39,19 +44,24 @@ CUSTOM_KEYBOARD = [
         [CMD_HELP, CMD_LIST],
         ]
 
-BASEBALL = '/baseball'
-GAMES = [BASEBALL]
-GAME_DIC = {'/baseball': 'baseball.Baseball'}
+###############################################################################
+GAME_DIC = dict()
+GAME_DIC[Baseball.INFO[KEY]] = Baseball.INFO[VALUE]
+GAME_DIC[Arithmetic.INFO[KEY]] = Arithmetic.INFO[VALUE]
+GAME_DIC[Game2048.INFO[KEY]] = Game2048.INFO[VALUE]
+GAMES = GAME_DIC.keys()
+###############################################################################
 
-def make_markup(key, ARRAYS):
+
+def make_markup(key, arrays):
     rtn = {key: [[]]}
-    for arr in ARRAYS:
-        data = {}
+    for arr in arrays:
+        data = dict()
         data['callback_data'] = arr
         data['text'] = arr
         rtn['inline_keyboard'][0].append(data)
-
     return json.dumps(rtn)
+
 
 def send_msg(chat_id, text, reply_to=None, no_preview=True, keyboard=None, inline=None):
     params = {
@@ -71,56 +81,80 @@ def send_msg(chat_id, text, reply_to=None, no_preview=True, keyboard=None, inlin
             })
         params['reply_markup'] = reply_markup
     if inline:
-        inline_keyboard = make_markup('inline_keyboard', GAMES)
+        inline_keyboard = make_markup('inline_keyboard', inline)
         params['reply_markup'] = inline_keyboard
-        logging.info(inline_keyboard)
     try:
         urllib2.urlopen(BASE_URL + 'sendMessage', urllib.urlencode(params)).read()
     except Exception as e:
         logging.exception(e)
 
+
 def handle_start(text, game_record):
-    if CMD_START == text:
-        game_record.set_enable(True)
-        send_msg(game_record.key.id(), MSG_START)
-        return True
-    return False
+    if not CMD_START == text:
+        return False
+
+    game_record.set_enable(True)
+    send_msg(game_record.key.id(), MSG_START)
+    return True
+
 
 def handle_stop(text, game_record):
-    if CMD_STOP == text:
-        game_record.set_enable(False)
-        send_msg(game_record.key.id(), MSG_STOP)
-        return True
-    return False
+    if not CMD_STOP == text:
+        return False
+
+    game_record.set_enable(False)
+    send_msg(game_record.key.id(), MSG_STOP)
+    return True
+
 
 def handle_help(text, game_record):
-    if CMD_HELP == text:
+    if not CMD_HELP == text:
+        return False
+
+    if not game_record.game:
         send_msg(game_record.key.id(), MSG_HELP, keyboard=CUSTOM_KEYBOARD)
         return True
-    return False
+
+    g = load_class(game_record.game)
+    if not g:
+        send_msg(game_record.key.id(), MSG_HELP, keyboard=CUSTOM_KEYBOARD)
+        return
+
+    g = g.load(game_record.record)
+    send_msg(game_record.key.id(), g.help(), keyboard=CUSTOM_KEYBOARD)
+    return True
+
 
 def handle_list(text, game_record):
-    if CMD_LIST == text:
-        send_msg(game_record.key.id(), "게임을 선택하세요.", inline=GAMES)
-        return True
-    return False
+    if not CMD_LIST == text:
+        return False
+
+    send_msg(game_record.key.id(), "게임을 선택하세요.", inline=GAMES)
+    return True
+
 
 def select_game(text, game_record):
-    for _game in GAMES:
-        if text == _game:
-            g = load_game(str(_game))
-            game_record.select_game(str(_game), str(g))
-            send_msg(game_record.key.id(), str(_game) + " 게임이 선택되었습니다.")
-            send_msg(game_record.key.id(), g.info())
-            return True
-    return False
+    g = load_class(str(text))
+    if not g:
+        logging.info('g is None')
+        return False
 
-def load_game(text):
-    if text == BASEBALL:
-        str = Baseball.make_game()
-        g = Baseball(str)
-        return g
+    game_record.select_game(str(text), str(g))
+    send_msg(game_record.key.id(), "%s 게임이 선택되었습니다." % g.get_name())
+    send_msg(game_record.key.id(), g.start_game(), inline=g.keyboards())
+    return True
+
+
+def load_class(text):
+    items = GAME_DIC.items()
+    for index in range(len(items)):
+        item = items[index]
+        if text == item[KEY]:
+            game_class = webapp2.import_string(item[VALUE])
+            g = game_class()
+            return g
     return None
+
 
 def cmd_game(text, game_record):
     if not game_record:
@@ -129,17 +163,21 @@ def cmd_game(text, game_record):
     if not game_record.game:
         return
 
-    g = Baseball.load_from_json(game_record.record)
-    logging.info(game_record.record)
+    clazz = load_class(game_record.game)
+    if not clazz:
+        logging.info('clazz is None')
+        return
 
+    g = clazz.load(game_record.record)
     if not g:
         logging.info('g is None')
         return
 
     result = g.run_game(str(text))
-    send_msg(game_record.key.id(), result)
+    send_msg(game_record.key.id(), result, inline=g.keyboards())
     game_record.select_game(game_record.game, str(g))
     return
+
 
 def process_cmds(msg):
     msg_id = msg['message_id']
@@ -169,6 +207,8 @@ def process_cmds(msg):
         return
 
     cmd_game(text, game_record)
+    return
+
 
 def process_callbacks(msg):
     message = msg['message']
@@ -180,25 +220,42 @@ def process_callbacks(msg):
         return
 
     game_record = GameRecord.get_record(chat_id)
-    select_game(data, game_record)
+    if not game_record.enabled:
+        return
+
+    if data.startswith('/'):
+        select_game(data, game_record)
+        return
+
+    cmd_game(data, game_record)
+    return
+
 
 def request_debug(msg):
     requests.get(DEBUG_URL + 'debug?' + msg)
+    return
+
 
 class DebugHandler(webapp2.RequestHandler):
     def get(self):
         if DEBUG:
             logging.debug(self.request.body)
+        return
+
 
 class MeHandler(webapp2.RequestHandler):
     def get(self):
         urlfetch.set_default_fetch_deadline(60)
         self.response.write(json.dumps(json.load(urllib2.urlopen(BASE_URL + 'getMe'))))
+        return
+
 
 class GetUpdatesHandler(webapp2.RequestHandler):
     def get(self):
         urlfetch.set_default_fetch_deadline(60)
         self.response.write(json.dumps(json.load(urllib2.urlopen(BASE_URL + 'getUpdates'))))
+        return
+
 
 class SetWebhookHandler(webapp2.RequestHandler):
     def get(self):
@@ -206,6 +263,8 @@ class SetWebhookHandler(webapp2.RequestHandler):
         url = self.request.get('url')
         if url:
             self.response.write(json.dumps(json.load(urllib2.urlopen(BASE_URL + 'setWebhook', urllib.urlencode({'url': url})))))
+        return
+
 
 class WebhookHandler(webapp2.RequestHandler):
     def post(self):
@@ -218,6 +277,8 @@ class WebhookHandler(webapp2.RequestHandler):
 
         if 'callback_query' in body:
             process_callbacks(body['callback_query'])
+        return
+
 
 app = webapp2.WSGIApplication([
     ('/me', MeHandler),

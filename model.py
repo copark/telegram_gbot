@@ -24,5 +24,4 @@ class GameRecord(ndb.Model):
     def select_game(self, game, record):
         self.game = game
         self.record = record
-        logging.info("select_game" + record)
         self.put()
