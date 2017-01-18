@@ -84,7 +84,28 @@ def send_msg(chat_id, text, reply_to=None, no_preview=True, keyboard=None, inlin
         inline_keyboard = make_markup('inline_keyboard', inline)
         params['reply_markup'] = inline_keyboard
     try:
-        urllib2.urlopen(BASE_URL + 'sendMessage', urllib.urlencode(params)).read()
+        url = BASE_URL + 'sendMessage'
+        logging.info(url)
+        urllib2.urlopen(url, urllib.urlencode(params)).read()
+    except Exception as e:
+        logging.exception(e)
+
+
+def edit_msg(msg_id, chat_id, text, no_preview=True, inline=None):
+    params = {
+        'chat_id': str(chat_id),
+        'message_id' : str(msg_id),
+        'text': text.encode('utf-8'),
+        'disable_web_page_preview' : True
+    }
+
+    if inline:
+        inline_keyboard = make_markup('inline_keyboard', inline)
+        params['reply_markup'] = inline_keyboard
+    try:
+        url = BASE_URL + 'editMessageText'
+        logging.info(url)
+        res = urllib2.urlopen(url, urllib.urlencode(params)).read()
     except Exception as e:
         logging.exception(e)
 
@@ -178,6 +199,29 @@ def cmd_game(text, game_record):
     game_record.select_game(game_record.game, str(g))
     return
 
+def cmd_edit(msg_id, text, game_record):
+    if not game_record:
+        return
+
+    if not game_record.game:
+        return
+
+    clazz = load_class(game_record.game)
+    if not clazz:
+        logging.info('clazz is None')
+        return
+
+    g = clazz.load(game_record.record)
+    if not g:
+        logging.info('g is None')
+        return
+
+    result = g.run_game(str(text))
+
+    edit_msg(msg_id, game_record.key.id(), result, inline=g.keyboards())
+    game_record.select_game(game_record.game, str(g))
+    return
+
 
 def process_cmds(msg):
     msg_id = msg['message_id']
@@ -227,7 +271,7 @@ def process_callbacks(msg):
         select_game(data, game_record)
         return
 
-    cmd_game(data, game_record)
+    cmd_edit(msg_id, data, game_record)
     return
 
 
@@ -269,7 +313,10 @@ class SetWebhookHandler(webapp2.RequestHandler):
 class WebhookHandler(webapp2.RequestHandler):
     def post(self):
         urlfetch.set_default_fetch_deadline(60)
-        request_debug(self.request.body)
+        # request_debug(self.request.body)
+        if DEBUG:
+            logging.info(self.request.body)
+
         body = json.loads(self.request.body)
         self.response.write(json.dumps(body))
         if 'message' in body:

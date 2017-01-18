@@ -54,8 +54,8 @@ class Game2048(Game):
         return self._print_grid()
 
     def _print_grid(self):
-        return ("\n%s\n" % "+".join([('-' * 4)] * self.length)).join(
-            ["|".join(["%4d" % item if item > 0 else "\t" * 4 for item in line]) for line in self.grid])
+        return ("\n|%s|\n" % "+".join([('-' * 4)] * self.length)).join(
+            ["|%s|" % "|".join(["%6d" % item if item > 0 else "        " for item in line]) for line in self.grid])
 
     def run_game(self, user_input):
         direction = str(user_input).strip().lower()
@@ -76,11 +76,11 @@ class Game2048(Game):
         movable_direction = self._get_movable_directions(direction)
         if len(movable_direction) == 0:
             self.end_game()
-            return "당신이 졌습니다. %s 을 클릭하여 재시작 해 주세요." % self.ID
+            msg = self._print_grid() + "\n당신이 졌습니다. %s 을 클릭하여 재시작 해 주세요." % self.ID
+            return msg
 
         if direction not in movable_direction:
-            msg = self._print_grid()
-            msg += "\n 잘못 입력하셨습니다."
+            msg = self._print_grid() + "\n %s 방향으로는 움직일 수 없습니다." % direction
             return msg
 
         return None
